@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Emergence — Mona Lisa</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #070707; }
+  body { font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #eee; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  
+  /* 좌측 상단 상태표시 (유지) */
+  .hud {
+    position: fixed; left: 24px; top: 20px; z-index: 2;
+    pointer-events: none; user-select: none;
+    text-shadow: 0 2px 12px #000;
+  }
+  .title { font-size: 13px; letter-spacing: .24em; opacity: .65; }
+  .state { margin-top: 7px; font-size: 24px; letter-spacing: .08em; font-weight: 600; }
+  
+  /* 우측 갤러리 바 (신규) */
+  .gallery-bar {
+    position: fixed; right: 24px; top: 50%; transform: translateY(-50%);
+    z-index: 10; display: flex; flex-direction: column; gap: 12px;
+    background: rgba(0, 0, 0, 0.4); padding: 12px; border-radius: 12px;
+    backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1);
+    max-height: 80vh; overflow-y: auto;
+    /* 스크롤바 숨기기 */
+    -ms-overflow-style: none; scrollbar-width: none;
+  }
+  .gallery-bar::-webkit-scrollbar { display: none; }
+
+  /* 썸네일 컨테이너 */
+  .thumb-wrap { 
+    position: relative; width: 52px; height: 52px; cursor: pointer; 
+    border-radius: 8px; transition: transform 0.2s, opacity 0.2s;
+  }
+  .thumb-wrap img {
+    width: 100%; height: 100%; object-fit: cover; border-radius: 8px;
+    border: 2px solid transparent; transition: all 0.2s;
+    pointer-events: none; /* 드래그 이벤트를 래퍼에서 처리하기 위함 */
+  }
+  
+  /* 상태별 썸네일 스타일 */
+  .thumb-wrap:hover img { opacity: 0.8; }
+  .thumb-wrap.active img { border-color: #fff; }
+  .thumb-wrap.active { transform: scale(1.05); }
+  .thumb-wrap.dragging { opacity: 0.4; transform: scale(0.95); }
+  .thumb-wrap.drag-over { border-top: 3px solid rgba(255, 255, 255, 0.8); }
+
+  /* 이미지 추가 버튼 */
+  .add-btn {
+    width: 52px; height: 52px; border-radius: 8px;
+    border: 1px dashed rgba(255, 255, 255, 0.4);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 300; color: rgba(255, 255, 255, 0.6);
+    cursor: pointer; transition: all 0.2s;
+  }
+  .add-btn:hover {
+    background: rgba(255, 255, 255, 0.1); color: #fff; border-color: #fff;
+  }
+  #hidden-file { display: none; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<!-- HUD -->
+<div class="hud">
+  <div class="title">EMERGENCE / STUDY 01</div>
+  <div class="state" id="state">CHAOS</div>
+</div>
+
+<!-- 갤러리 바 -->
+<div class="gallery-bar" id="gallery">
+  <!-- JavaScript를 통해 동적으로 썸네일과 + 버튼이 추가됩니다 -->
+</div>
+<input id="hidden-file" type="file" accept="image/*" multiple>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d", { alpha: false });
+const stateEl = document.getElementById("state");
+
+// 신규 갤러리 DOM 요소
+const galleryEl = document.getElementById("gallery");
+const hiddenFile = document.getElementById("hidden-file");
+
+const STATE = {
+  CHAOS:     { duration: 4800, flow: 1.00, target: 0.00, noise: 0.55 },
+  ATTRACT:   { duration: 4200, flow: 0.65, target: 0.38, noise: 0.28 },
+  EMERGENCE: { duration: 4200, flow: 0.32, target: 0.72, noise: 0.12 },
+  PAINTING:  { duration: 3600, flow: 0.08, target: 0.94, noise: 0.035 },
+  COLLAPSE:  { duration: 3000, flow: 1.15, target: 0.00, noise: 0.72 }
+};
+const order = Object.keys(STATE);
+let W = 0, H = 0, DPR = 1;
+
+// 호스팅된 이미지 경로
+const imagePaths = [
+  "./MonaLisa.jpeg",
+  "./StarryNight.jpeg",
+  "./TheScream.jpeg",
+  "./Wave.jpeg",
+  "./GirlWithAPearlEarring.jpeg"
+];
+
+let images = [];
+let currentImageIndex = 0;
+let image = new Image();
+let particles = [];
+let targetPoints = [];
+let targetCanvas = document.createElement("canvas");
+let targetCtx = targetCanvas.getContext("2d", { willReadFrequently: true });
+
+let currentState = 0;
+let stateStarted = performance.now();
+let last = performance.now();
+let seed = Math.random() * 10000;
+const mouse = { x: -9999, y: -9999, active: false, down: false };
+
+// ----------------------------------------------------
+// 신규 갤러리 바 렌더링 및 드래그 앤 드롭 로직
+// ----------------------------------------------------
+let dragSrcEl = null;
+
+function renderGallery() {
+  galleryEl.innerHTML = "";
+  
+  images.forEach((imgObj, idx) => {
+    const wrap = document.createElement("div");
+    wrap.className = "thumb-wrap";
+    if (idx === currentImageIndex) wrap.classList.add("active");
+    wrap.draggable = true;
+    wrap.dataset.index = idx;
+    
+    const imgEl = document.createElement("img");
+    imgEl.src = imgObj.src; // 로드된 이미지 객체의 src 속성 사용
+    wrap.appendChild(imgEl);
+    
+    // 클릭 이벤트: 클릭한 이미지로 렌더링 전환
+    wrap.addEventListener("click", () => {
+      if (currentImageIndex !== idx) {
+        currentImageIndex = idx;
+        image = images[currentImageIndex];
+        rebuildTarget();
+        restart();
+        updateGalleryUI();
+      }
+    });
+
+    // HTML5 드래그 앤 드롭 이벤트
+    wrap.addEventListener("dragstart", handleDragStart);
+    wrap.addEventListener("dragover", handleDragOver);
+    wrap.addEventListener("dragenter", handleDragEnter);
+    wrap.addEventListener("dragleave", handleDragLeave);
+    wrap.addEventListener("drop", handleDrop);
+    wrap.addEventListener("dragend", handleDragEnd);
+    
+    galleryEl.appendChild(wrap);
+  });
+  
+  // [+] 버튼 추가
+  const addBtn = document.createElement("div");
+  addBtn.className = "add-btn";
+  addBtn.innerHTML = "+";
+  addBtn.addEventListener("click", () => hiddenFile.click());
+  galleryEl.appendChild(addBtn);
+}
+
+function updateGalleryUI() {
+  const wraps = galleryEl.querySelectorAll(".thumb-wrap");
+  wraps.forEach((wrap, idx) => {
+    wrap.classList.toggle("active", idx === currentImageIndex);
+  });
+}
+
+// 드래그 핸들러 함수들
+function handleDragStart(e) {
+  dragSrcEl = this;
+  e.dataTransfer.effectAllowed = "move";
+  this.classList.add("dragging");
+}
+function handleDragOver(e) {
+  if (e.preventDefault) e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  return false;
+}
+function handleDragEnter(e) { this.classList.add("drag-over"); }
+function handleDragLeave(e) { this.classList.remove("drag-over"); }
+function handleDrop(e) {
+  if (e.stopPropagation) e.stopPropagation();
+  if (dragSrcEl !== this) {
+    const fromIdx = parseInt(dragSrcEl.dataset.index);
+    const toIdx = parseInt(this.dataset.index);
+    
+    // images 배열 순서 변경
+    const movedImage = images.splice(fromIdx, 1)[0];
+    images.splice(toIdx, 0, movedImage);
+    
+    // 현재 재생 중인 이미지 인덱스 추적/보정
+    if (currentImageIndex === fromIdx) {
+      currentImageIndex = toIdx;
+    } else {
+      if (fromIdx < currentImageIndex && toIdx >= currentImageIndex) currentImageIndex--;
+      else if (fromIdx > currentImageIndex && toIdx <= currentImageIndex) currentImageIndex++;
+    }
+    renderGallery(); // UI 재렌더링
+  }
+  return false;
+}
+function handleDragEnd(e) {
+  const wraps = galleryEl.querySelectorAll(".thumb-wrap");
+  wraps.forEach(wrap => wrap.classList.remove("drag-over", "dragging"));
+}
+
+// 파일 첨부 입력 처리
+hiddenFile.addEventListener("change", (e) => {
+  const files = e.target.files;
+  if (!files || files.length === 0) return;
+  
+  Array.from(files).forEach(file => {
+    const url = URL.createObjectURL(file);
+    const nextImg = new Image();
+    nextImg.onload = () => {
+      images.push(nextImg); // 배열 맨 뒤에 추가
+      renderGallery();      // 갤러리 바 갱신
+    };
+    nextImg.src = url;
+  });
+  hiddenFile.value = ""; // 초기화
+});
+
+// ----------------------------------------------------
+// 기존 파티클 시스템 로직
+// ----------------------------------------------------
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  rebuildTarget();
+}
+window.addEventListener("resize", resize);
+
+function fitRect(iw, ih) {
+  const maxW = Math.min(W * 0.72, 720);
+  const maxH = H * 0.84;
+  const scale = Math.min(maxW / iw, maxH / ih);
+  const w = iw * scale;
+  const h = ih * scale;
+  return { x: (W - w) * 0.5, y: (H - h) * 0.5, w, h };
+}
+
+function rebuildTarget() {
+  if (!image.naturalWidth) return;
+  const rect = fitRect(image.naturalWidth, image.naturalHeight);
+  const analysisW = 360;
+  const analysisH = Math.round(analysisW * image.naturalHeight / image.naturalWidth);
+  targetCanvas.width = analysisW;
+  targetCanvas.height = analysisH;
+  targetCtx.clearRect(0, 0, analysisW, analysisH);
+  targetCtx.drawImage(image, 0, 0, analysisW, analysisH);
+  
+  const pixels = targetCtx.getImageData(0, 0, analysisW, analysisH).data;
+  targetPoints = [];
+  const step = 4;
+  
+  const luminance = new Float32Array(analysisW * analysisH);
+  for (let y = 0; y < analysisH; y++) {
+    for (let x = 0; x < analysisW; x++) {
+      const i = (y * analysisW + x) * 4;
+      luminance[y * analysisW + x] = 0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2];
+    }
+  }
+  
+  for (let y = 0; y < analysisH; y += step) {
+    for (let x = 0; x < analysisW; x += step) {
+      const px = Math.min(x, analysisW - 1);
+      const py = Math.min(y, analysisH - 1);
+      const index = py * analysisW + px;
+      const pixelIndex = index * 4;
+      const lum = luminance[index] / 255;
+      
+      const left = luminance[py * analysisW + Math.max(0, px - 1)];
+      const right = luminance[py * analysisW + Math.min(analysisW - 1, px + 1)];
+      const up = luminance[Math.max(0, py - 1) * analysisW + px];
+      const down = luminance[Math.min(analysisH - 1, py + 1) * analysisW + px];
+      const gx = right - left;
+      const gy = down - up;
+      const edge = Math.min(1, Math.sqrt(gx * gx + gy * gy) / 120);
+      
+      const targetX = rect.x + (x / analysisW) * rect.w;
+      const targetY = rect.y + (y / analysisH) * rect.h;
+      
+      const darkness = 1 - lum;
+      const size = 0.45 + darkness * 0.9 + edge * 0.65;
+      const alpha = 0.18 + darkness * 0.58 + edge * 0.35;
+      
+      targetPoints.push({
+        x: targetX, y: targetY, lum, edge, size, alpha,
+        r: pixels[pixelIndex], g: pixels[pixelIndex + 1], b: pixels[pixelIndex + 2]
+      });
+    }
+  }
+  assignTargetsToParticles();
+}
+
+function createParticle(t, i) {
+  return {
+    x: Math.random() * W, y: Math.random() * H,
+    vx: (Math.random() - 0.5) * 2, vy: (Math.random() - 0.5) * 2,
+    r: t.r, g: t.g, b: t.b, size: t.size, alpha: t.alpha,
+    targetX: t.x, targetY: t.y, targetR: t.r, targetG: t.g, targetB: t.b,
+    targetSize: t.size, targetAlpha: t.alpha,
+    phase: Math.random() * Math.PI * 2, noiseOffset: Math.random() * 1000, seed: i * 0.731 + seed
+  };
+}
+
+function flowField(x, y, t, p) {
+  const nx = x * 0.0055;
+  const ny = y * 0.0055;
+  const a =
+    Math.sin(nx * 1.7 + Math.sin(ny * 1.3 + t * 0.00012)) +
+    Math.cos(ny * 1.25 - Math.sin(nx * 1.1)) +
+    Math.sin((nx + ny) * 0.75 + p.seed * 0.0007);
+  const angle = a * Math.PI * 0.72;
+  return { x: Math.cos(angle), y: Math.sin(angle) };
+}
+
+function noise2(p, t) {
+  return {
+    x: Math.sin(t * 0.0017 + p.noiseOffset) * 0.5,
+    y: Math.cos(t * 0.0013 + p.noiseOffset * 1.37) * 0.5
+  };
+}
+
+function advanceState(now) {
+  const cfg = STATE[order[currentState]];
+  if (now - stateStarted >= cfg.duration) {
+    const previousState = currentState;
+    currentState = (currentState + 1) % order.length;
+    
+    // 자동 전환 시 갤러리 UI와 이미지 인덱스도 함께 업데이트
+    if (previousState === order.indexOf("COLLAPSE") && currentState === order.indexOf("CHAOS")) {
+      currentImageIndex = (currentImageIndex + 1) % images.length;
+      image = images[currentImageIndex];
+      rebuildTarget();
+      updateGalleryUI();
+    }
+    stateStarted = now;
+    stateEl.textContent = order[currentState];
+  }
+}
+
+function restart() {
+  seed = Math.random() * 10000;
+  currentState = 0;
+  stateStarted = performance.now();
+  for (const p of particles) {
+    p.x = Math.random() * W; p.y = Math.random() * H;
+    p.vx = (Math.random() - .5) * 2; p.vy = (Math.random() - .5) * 2;
+  }
+  stateEl.textContent = "CHAOS";
+}
+
+function disturb(x, y, strength = 1) {
+  for (const p of particles) {
+    const dx = p.x - x; const dy = p.y - y; const d2 = dx * dx + dy * dy;
+    if (d2 > 1 && d2 < 180 * 180) {
+      const d = Math.sqrt(d2);
+      const force = (1 - d / 180) * 2.8 * strength;
+      p.vx += dx / d * force; p.vy += dy / d * force;
+    }
+  }
+}
+
+function update(dt, now) {
+  const name = order[currentState];
+  const cfg = STATE[name];
+  const transitionSpeed = 0.01; 
+
+  for (const p of particles) {
+    p.r += (p.targetR - p.r) * transitionSpeed;
+    p.g += (p.targetG - p.g) * transitionSpeed;
+    p.b += (p.targetB - p.b) * transitionSpeed;
+    p.size += (p.targetSize - p.size) * transitionSpeed;
+    p.alpha += (p.targetAlpha - p.alpha) * transitionSpeed;
+
+    const f = flowField(p.x, p.y, now, p);
+    const n = noise2(p, now);
+
+    p.vx += f.x * cfg.flow * 0.075;
+    p.vy += f.y * cfg.flow * 0.075;
+
+    if (cfg.target > 0) {
+      const dx = p.targetX - p.x; 
+      const dy = p.targetY - p.y; 
+      p.vx += dx * cfg.target * 0.0038;
+      p.vy += dy * cfg.target * 0.0038;
+    }
+    p.vx += n.x * cfg.noise * 0.025;
+    p.vy += n.y * cfg.noise * 0.025;
+    
+    if (mouse.active) {
+      const dx = p.x - mouse.x; const dy = p.y - mouse.y; const d2 = dx * dx + dy * dy;
+      if (d2 < 160 * 160 && d2 > 1) {
+        const d = Math.sqrt(d2);
+        const force = (1 - d / 160) * 0.32;
+        p.vx += dx / d * force; p.vy += dy / d * force;
+      }
+    }
+    p.vx *= 0.93; p.vy *= 0.93;
+    const maxSpeed = name === "PAINTING" ? 0.85 : 4.0;
+    const speed = Math.hypot(p.vx, p.vy);
+    if (speed > maxSpeed) {
+      p.vx = p.vx / speed * maxSpeed; p.vy = p.vy / speed * maxSpeed;
+    }
+    p.x += p.vx * dt * 0.06; p.y += p.vy * dt * 0.06;
+    if (p.x < -20) p.x = W + 20; if (p.x > W + 20) p.x = -20;
+    if (p.y < -20) p.y = H + 20; if (p.y > H + 20) p.y = -20;
+  }
+}
+
+function draw(now) {
+  const name = order[currentState];
+  ctx.fillStyle = "rgba(7, 7, 7, 0.18)";
+  ctx.fillRect(0, 0, W, H);
+  for (const p of particles) {
+    let alpha = p.alpha;
+    if (name === "PAINTING") alpha *= 1.25;
+    alpha = Math.min(alpha, 0.95);
+    ctx.fillStyle = `rgba(${p.r}, ${p.g}, ${p.b}, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function frame(now) {
+  const dt = Math.min(32, now - last);
+  last = now;
+  advanceState(now);
+  update(dt, now);
+  draw(now);
+  requestAnimationFrame(frame);
+}
+
+function assignTargetsToParticles() {
+  const tCount = targetPoints.length;
+  if (particles.length === 0) {
+    particles = targetPoints.map((t, i) => createParticle(t, i));
+    return;
+  }
+  while (particles.length < tCount) {
+    const dummyTarget = targetPoints[particles.length];
+    particles.push(createParticle(dummyTarget, particles.length));
+  }
+  for (let i = 0; particles.length > i; i++) {
+    const t = targetPoints[i % tCount]; 
+    const p = particles[i];
+    p.targetX = t.x; p.targetY = t.y; p.targetR = t.r; p.targetG = t.g; p.targetB = t.b;
+    p.targetSize = t.size; p.targetAlpha = t.alpha;
+  }
+}
+
+canvas.addEventListener("pointermove", e => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.active = true; });
+canvas.addEventListener("pointerleave", () => { mouse.active = false; });
+canvas.addEventListener("pointerdown", e => { disturb(e.clientX, e.clientY, 1.8); });
+
+// 단축키 (스페이스바: 리스타트, C: 붕괴) 기능은 유용하므로 유지
+window.addEventListener("keydown", e => {
+  if (e.code === "Space") { e.preventDefault(); restart(); }
+  if (e.key.toLowerCase() === "c") {
+    currentState = 4; stateStarted = performance.now(); stateEl.textContent = "COLLAPSE";
+  }
+});
+
+function loadImages() {
+  return Promise.all(
+    imagePaths.map(path => {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = path;
+      });
+    })
+  );
+}
+
+loadImages().then(loadedImages => {
+  images = loadedImages;
+  image = images[0];
+  resize();
+  renderGallery(); // 초기 로딩 후 갤러리 렌더링 추가
+  restart();
+  requestAnimationFrame(frame);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Emergence — Mona Lisa</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #070707; }
+  body { font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #eee; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .hud {
+    position: fixed; left: 24px; top: 20px; z-index: 2;
+    pointer-events: none; user-select: none;
+    text-shadow: 0 2px 12px #000;
+  }
+  .title { font-size: 13px; letter-spacing: .24em; opacity: .65; }
+  .state { margin-top: 7px; font-size: 24px; letter-spacing: .08em; font-weight: 600; }
+  .hint {
+    position: fixed; left: 24px; bottom: 20px; z-index: 2;
+    font-size: 11px; letter-spacing: .08em; opacity: .4;
+    pointer-events: none;
+  }
+  .controls {
+    position: fixed; right: 20px; top: 18px; z-index: 3;
+    display: flex; gap: 7px; align-items: center;
+  }
+  button, label {
+    border: 1px solid rgba(255,255,255,.15);
+    background: rgba(0,0,0,.35);
+    color: #ddd;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+  }
+  button:hover, label:hover { background: rgba(255,255,255,.08); }
+  input { display: none; }
+  .credit {
+    position: fixed; right: 20px; bottom: 20px; z-index: 2;
+    font-size: 10px; opacity: .25;
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div class="hud">
+  <div class="title">EMERGENCE / STUDY 01</div>
+  <div class="state" id="state">CHAOS</div>
+</div>
+<div class="controls">
+  <button id="restart">RESTART</button>
+  <label>
+    CHANGE IMAGE
+    <input id="file" type="file" accept="image/*">
+  </label>
+</div>
+<div class="hint">MOVE MOUSE · CLICK TO DISTURB · SPACE RESTART</div>
+<div class="credit">density + flow field + target attraction / V1.1</div>
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d", { alpha: false });
+const stateEl = document.getElementById("state");
+const fileInput = document.getElementById("file");
+const restartBtn = document.getElementById("restart");
+const STATE = {
+  CHAOS:     { duration: 4800, flow: 1.00, target: 0.00, noise: 0.55 },
+  ATTRACT:   { duration: 4200, flow: 0.65, target: 0.38, noise: 0.28 },
+  EMERGENCE: { duration: 4200, flow: 0.32, target: 0.72, noise: 0.12 },
+  PAINTING:  { duration: 3600, flow: 0.08, target: 0.94, noise: 0.035 },
+  COLLAPSE:  { duration: 3000, flow: 1.15, target: 0.00, noise: 0.72 }
+};
+const order = Object.keys(STATE);
+let W = 0, H = 0, DPR = 1;
+const imagePaths = [
+  "./MonaLisa.jpeg",
+  "./StarryNight.jpeg",
+  "./TheScream.jpeg",
+  "./Wave.jpeg",
+  "./GirlWithAPearlEarring.jpeg"
+];
+let images = [];
+let currentImageIndex = 0;
+let image = new Image();
+let particles = [];
+let targetPoints = [];
+let targetCanvas = document.createElement("canvas");
+let targetCtx = targetCanvas.getContext("2d", { willReadFrequently: true });
+let currentState = 0;
+let stateStarted = performance.now();
+let last = performance.now();
+let elapsed = 0;
+let seed = Math.random() * 10000;
+const mouse = {
+  x: -9999, y: -9999, active: false, down: false
+};
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  rebuildTarget();
+}
+function fitRect(iw, ih) {
+  const maxW = Math.min(W * 0.72, 720);
+  const maxH = H * 0.84;
+  const scale = Math.min(maxW / iw, maxH / ih);
+  const w = iw * scale;
+  const h = ih * scale;
+  return { x: (W - w) * 0.5, y: (H - h) * 0.5, w, h };
+}
+function rebuildTarget() {
+  if (!image.naturalWidth) return;
+  const rect = fitRect(image.naturalWidth, image.naturalHeight);
+  // 분석용 해상도는 고정.
+  // 화면 크기가 커져도 particle 수가 지나치게 늘어나지 않는다.
+  const analysisW = 360;
+  const analysisH = Math.round(
+    analysisW * image.naturalHeight / image.naturalWidth
+  );
+  targetCanvas.width = analysisW;
+  targetCanvas.height = analysisH;
+  targetCtx.clearRect(0, 0, analysisW, analysisH);
+  targetCtx.drawImage(
+    image,
+    0, 0,
+    analysisW,
+    analysisH
+  );
+  const pixels = targetCtx.getImageData(
+    0, 0,
+    analysisW,
+    analysisH
+  ).data;
+  targetPoints = [];
+  // 4px마다 하나의 기본 particle
+  // 약 12,000개 정도
+  const step = 4;
+  // -----------------------------
+  // 1. 명암 + Edge 계산
+  // -----------------------------
+  const luminance = new Float32Array(
+    analysisW * analysisH
+  );
+  for (let y = 0; y < analysisH; y++) {
+    for (let x = 0; x < analysisW; x++) {
+      const i = (y * analysisW + x) * 4;
+      const r = pixels[i];
+      const g = pixels[i + 1];
+      const b = pixels[i + 2];
+      luminance[y * analysisW + x] =
+        0.2126 * r +
+        0.7152 * g +
+        0.0722 * b;
+    }
+  }
+  // -----------------------------
+  // 2. Grid 기반 particle 생성
+  // -----------------------------
+  for (let y = 0; y < analysisH; y += step) {
+    for (let x = 0; x < analysisW; x += step) {
+      const px = Math.min(x, analysisW - 1);
+      const py = Math.min(y, analysisH - 1);
+      const index = py * analysisW + px;
+      const pixelIndex = index * 4;
+      const lum = luminance[index] / 255;
+      // -------------------------
+      // Edge detection
+      // -------------------------
+      const left =
+        luminance[py * analysisW + Math.max(0, px - 1)];
+      const right =
+        luminance[
+          py * analysisW +
+          Math.min(analysisW - 1, px + 1)
+        ];
+      const up =
+        luminance[
+          Math.max(0, py - 1) * analysisW + px
+        ];
+      const down =
+        luminance[
+          Math.min(analysisH - 1, py + 1) * analysisW + px
+        ];
+      const gx = right - left;
+      const gy = down - up;
+      const edge = Math.min(
+        1,
+        Math.sqrt(gx * gx + gy * gy) / 120
+      );
+      // -------------------------
+      // 위치
+      // -------------------------
+      const targetX =
+        rect.x +
+        (x / analysisW) * rect.w;
+      const targetY =
+        rect.y +
+        (y / analysisH) * rect.h;
+      // -------------------------
+      // Particle 특성
+      // -------------------------
+      const darkness = 1 - lum;
+      const size =
+        0.45 +
+        darkness * 0.9 +
+        edge * 0.65;
+      const alpha =
+        0.18 +
+        darkness * 0.58 +
+        edge * 0.35;
+      targetPoints.push({
+        x: targetX,
+        y: targetY,
+        lum,
+        edge,
+        size,
+        alpha,
+        r: pixels[pixelIndex],
+        g: pixels[pixelIndex + 1],
+        b: pixels[pixelIndex + 2]
+      });
+    }
+  }
+
+    assignTargetsToParticles();
+}
+function createParticle(t, i) {
+  return {
+    x: Math.random() * W,
+    y: Math.random() * H,
+    vx: (Math.random() - 0.5) * 2,
+    vy: (Math.random() - 0.5) * 2,
+    
+    // 현재 값
+    r: t.r, g: t.g, b: t.b,
+    size: t.size,
+    alpha: t.alpha,
+    
+    // 목표 값
+    targetX: t.x, targetY: t.y,
+    targetR: t.r, targetG: t.g, targetB: t.b,
+    targetSize: t.size, targetAlpha: t.alpha,
+    
+    phase: Math.random() * Math.PI * 2,
+    noiseOffset: Math.random() * 1000,
+    seed: i * 0.731 + seed
+  };
+}
+// 값비싼 Perlin 라이브러리 없이 만든 저비용 유사 flow field.
+// V2에서 curl noise로 교체하면 가장 먼저 개선할 부분.
+function flowField(x, y, t, p) {
+  const nx = x * 0.0055;
+  const ny = y * 0.0055;
+  const a =
+    Math.sin(nx * 1.7 + Math.sin(ny * 1.3 + t * 0.00012)) +
+    Math.cos(ny * 1.25 - Math.sin(nx * 1.1)) +
+    Math.sin((nx + ny) * 0.75 + p.seed * 0.0007);
+  const angle = a * Math.PI * 0.72;
+  return { x: Math.cos(angle), y: Math.sin(angle) };
+}
+function noise2(p, t) {
+  return {
+    x: Math.sin(t * 0.0017 + p.noiseOffset) * 0.5,
+    y: Math.cos(t * 0.0013 + p.noiseOffset * 1.37) * 0.5
+  };
+}
+function advanceState(now) {
+  const cfg = STATE[order[currentState]];
+  if (now - stateStarted >= cfg.duration) {
+    const previousState = currentState;
+    currentState = (currentState + 1) % order.length;
+    // COLLAPSE가 끝나고 다시 CHAOS로 돌아가는 순간
+    // 다음 그림으로 변경
+    if (
+      previousState === order.indexOf("COLLAPSE") &&
+      currentState === order.indexOf("CHAOS")
+    ) {
+      currentImageIndex =
+        (currentImageIndex + 1) % images.length;
+      image = images[currentImageIndex];
+      rebuildTarget();
+    }
+    stateStarted = now;
+    stateEl.textContent = order[currentState];
+  }
+}
+function restart() {
+  seed = Math.random() * 10000;
+  currentState = 0;
+  stateStarted = performance.now();
+  for (const p of particles) {
+    p.x = Math.random() * W;
+    p.y = Math.random() * H;
+    p.vx = (Math.random() - .5) * 2;
+    p.vy = (Math.random() - .5) * 2;
+  }
+  stateEl.textContent = "CHAOS";
+}
+function disturb(x, y, strength = 1) {
+  for (const p of particles) {
+    const dx = p.x - x;
+    const dy = p.y - y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > 1 && d2 < 180 * 180) {
+      const d = Math.sqrt(d2);
+      const force = (1 - d / 180) * 2.8 * strength;
+      p.vx += dx / d * force;
+      p.vy += dy / d * force;
+    }
+  }
+}
+function update(dt, now) {
+  const name = order[currentState];
+  const cfg = STATE[name];
+  
+  const transitionSpeed = 0.01; 
+
+  for (const p of particles) {
+    // 시각적 속성 보간 (천천히 스며들듯 변함)
+    p.r += (p.targetR - p.r) * transitionSpeed;
+    p.g += (p.targetG - p.g) * transitionSpeed;
+    p.b += (p.targetB - p.b) * transitionSpeed;
+    p.size += (p.targetSize - p.size) * transitionSpeed;
+    p.alpha += (p.targetAlpha - p.alpha) * transitionSpeed;
+
+    // ----------------------------------------------------
+    // 기존 물리 연산 (p.target.x/y 대신 p.targetX/Y 사용)
+    // ----------------------------------------------------
+    const f = flowField(p.x, p.y, now, p);
+    const n = noise2(p, now);
+
+    p.vx += f.x * cfg.flow * 0.075;
+    p.vy += f.y * cfg.flow * 0.075;
+
+    if (cfg.target > 0) {
+      const dx = p.targetX - p.x; // 수정을 반영한 부분
+      const dy = p.targetY - p.y; // 수정을 반영한 부분
+      p.vx += dx * cfg.target * 0.0038;
+      p.vy += dy * cfg.target * 0.0038;
+    }
+    // 3) 작은 노이즈: 완전히 기계적인 움직임 방지
+    p.vx += n.x * cfg.noise * 0.025;
+    p.vy += n.y * cfg.noise * 0.025;
+    // 4) 마우스 주변에서는 흐름을 깨뜨린다.
+    if (mouse.active) {
+      const dx = p.x - mouse.x;
+      const dy = p.y - mouse.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < 160 * 160 && d2 > 1) {
+        const d = Math.sqrt(d2);
+        const force = (1 - d / 160) * 0.32;
+        p.vx += dx / d * force;
+        p.vy += dy / d * force;
+      }
+    }
+    // damping
+    p.vx *= 0.93;
+    p.vy *= 0.93;
+    const maxSpeed = name === "PAINTING" ? 0.85 : 4.0;
+    const speed = Math.hypot(p.vx, p.vy);
+    if (speed > maxSpeed) {
+      p.vx = p.vx / speed * maxSpeed;
+      p.vy = p.vy / speed * maxSpeed;
+    }
+    p.x += p.vx * dt * 0.06;
+    p.y += p.vy * dt * 0.06;
+    // 화면 밖으로 나가면 반대편에서 다시 등장.
+    if (p.x < -20) p.x = W + 20;
+    if (p.x > W + 20) p.x = -20;
+    if (p.y < -20) p.y = H + 20;
+    if (p.y > H + 20) p.y = -20;
+  }
+}
+function draw(now) {
+  const name = order[currentState];
+  ctx.fillStyle = "rgba(7, 7, 7, 0.18)";
+  ctx.fillRect(0, 0, W, H);
+  for (const p of particles) {
+    let alpha = p.alpha;
+    // 완성 단계에서는 원본의 색과 형태를 최대한 보존
+    if (name === "PAINTING") {
+      alpha *= 1.25;
+    }
+    alpha = Math.min(alpha, 0.95);
+    ctx.fillStyle =
+      `rgba(${p.r}, ${p.g}, ${p.b}, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(
+      p.x,
+      p.y,
+      p.size,
+      0,
+      Math.PI * 2
+    );
+    ctx.fill();
+  }
+}
+function frame(now) {
+  const dt = Math.min(32, now - last);
+  last = now;
+  advanceState(now);
+  update(dt, now);
+  draw(now);
+  requestAnimationFrame(frame);
+}
+function assignTargetsToParticles() {
+  const tCount = targetPoints.length;
+  
+  // 최초 실행 시 (앱 최초 시작 때만 파티클 인스턴스 생성)
+  if (particles.length === 0) {
+    particles = targetPoints.map((t, i) => createParticle(t, i));
+    return;
+  }
+
+  // 기존 파티클 수가 적으면 부족한 만큼만 신규 생성
+  while (particles.length < tCount) {
+    const dummyTarget = targetPoints[particles.length];
+    particles.push(createParticle(dummyTarget, particles.length));
+  }
+
+  // 파티클 각각에 새 타겟 정보 바인딩 (순환 인덱스 처리)
+  for (let i = 0; particles.length > i; i++) {
+    const t = targetPoints[i % tCount]; // 타겟 개수가 부족할 경우 순환 매핑
+    const p = particles[i];
+    
+    // 목표 좌표 및 시각 정보 업데이트 (위치 x, y 및 vx, vy는 건드리지 않음)
+    p.targetX = t.x;
+    p.targetY = t.y;
+    p.targetR = t.r;
+    p.targetG = t.g;
+    p.targetB = t.b;
+    p.targetSize = t.size;
+    p.targetAlpha = t.alpha;
+  }
+}
+canvas.addEventListener("pointermove", e => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+  mouse.active = true;
+});
+canvas.addEventListener("pointerleave", () => {
+  mouse.active = false;
+});
+canvas.addEventListener("pointerdown", e => {
+  disturb(e.clientX, e.clientY, 1.8);
+});
+window.addEventListener("keydown", e => {
+  if (e.code === "Space") {
+    e.preventDefault();
+    restart();
+  }
+  if (e.key.toLowerCase() === "c") {
+    currentState = 4;
+    stateStarted = performance.now();
+    stateEl.textContent = "COLLAPSE";
+  }
+});
+restartBtn.addEventListener("click", restart);
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const next = new Image();
+  next.onload = () => {
+    image = next;
+    rebuildTarget();
+    restart();
+    URL.revokeObjectURL(url);
+  };
+  next.src = url;
+});
+function loadImages() {
+  return Promise.all(
+    imagePaths.map(path => {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = path;
+      });
+    })
+  );
+}
+loadImages().then(loadedImages => {
+  images = loadedImages;
+  image = images[0];
+  resize();
+  restart();
+  requestAnimationFrame(frame);
+});
+</script>
+</body>
+</html>

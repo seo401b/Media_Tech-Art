@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Digital Gallery</title>
+  <style>
+    body {
+      margin: 0; padding: 0; background-color: #070707; color: #eee;
+      font-family: Inter, system-ui, -apple-system, sans-serif;
+      display: flex; flex-direction: column; align-items: center;
+      min-height: 100vh;
+    }
+    header {
+      margin-top: 100px; margin-bottom: 60px; text-align: center;
+    }
+    h1 {
+      font-size: 24px; font-weight: 300; letter-spacing: 0.3em;
+      margin: 0; opacity: 0.9;
+    }
+    p.subtitle {
+      font-size: 13px; color: #888; letter-spacing: 0.1em;
+      margin-top: 10px;
+    }
+    .gallery-grid {
+      display: flex; gap: 24px; flex-wrap: wrap; justify-content: center;
+      max-width: 900px; padding: 0 20px;
+    }
+    /* 개별 프로젝트 카드 디자인 */
+    .card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px; padding: 24px; width: 280px;
+      text-decoration: none; color: inherit;
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+    .card:hover {
+      transform: translateY(-5px);
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.3);
+      box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+    }
+    .card h2 {
+      font-size: 16px; font-weight: 500; letter-spacing: 0.15em;
+      margin: 0 0 12px 0;
+    }
+    .card p {
+      font-size: 13px; color: #aaa; margin: 0; line-height: 1.6;
+    }
+    .coming-soon { opacity: 0.4; cursor: default; }
+    .coming-soon:hover { transform: none; background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.1); box-shadow: none; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>DIGITAL ART GALLERY</h1>
+    <p class="subtitle">Interactive Web Studies</p>
+  </header>
+
+  <div class="gallery-grid">
+    <!-- 🟢 첫 번째 프로젝트 (클릭 시 flowfield 폴더로 이동) -->
+    <a href="./flowfield/" class="card">
+      <h2>STUDY 01 : flowfield</h2>
+      <p>파티클과 플로우 필드를 활용한 명화의 붕괴와 재구성.</p>
+    </a>
+
+    <!-- ⚪ 두 번째 프로젝트 (준비 중 공간) -->
+    <div class="card coming-soon">
+      <h2>STUDY 02 : COMING SOON</h2>
+      <p>다음 인터랙티브 작품을 준비 중입니다.</p>
+    </div>
+  </div>
+
+</body>
+</html>

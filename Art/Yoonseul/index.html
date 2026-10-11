@@ -41,27 +41,17 @@
             box-shadow: 0 0 20px rgba(255,255,255,0.2);
         }
 
-        /* In-Art Info Panel (Bottom Left) */
-        #info-panel { 
-            position: absolute; bottom: 30px; left: 30px; z-index: 5; 
-            color: rgba(255,255,255,0.85); pointer-events: none; 
-            display: flex; flex-direction: column; gap: 4px;
-            text-shadow: 0 2px 6px rgba(0,0,0,0.9);
-            opacity: 0; transition: opacity 2s;
-        }
-        .time-display { font-size: 1.6rem; font-weight: 300; letter-spacing: 2px; }
-        .theme-display { font-size: 0.9rem; letter-spacing: 1px; color: rgba(255,255,255,0.65); }
-
-        /* Control Panel (Top Right) */
+        /* Control Panel */
         #control-panel {
-            position: absolute; top: 30px; right: 30px; z-index: 5;
+            position: absolute; top: 24px; right: 24px; z-index: 5;
             display: flex; flex-direction: column; align-items: flex-end; gap: 14px;
-            opacity: 0; transition: opacity 2s; pointer-events: none;
+            opacity: 0; transition: opacity 2s; pointer-events: auto;
         }
-        .control-group {
-            display: flex; align-items: center; gap: 10px; pointer-events: auto;
+        
+        .top-bar {
+            display: flex; align-items: center; gap: 10px;
             background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(255, 255, 255, 0.15);
-            padding: 8px 14px; border-radius: 20px; backdrop-filter: blur(10px);
+            padding: 8px 16px; border-radius: 20px; backdrop-filter: blur(12px);
         }
         .icon-btn, .text-btn {
             background: transparent; border: none;
@@ -73,55 +63,92 @@
             color: #ffd085; font-weight: 500; text-shadow: 0 0 8px rgba(255, 208, 133, 0.5);
         }
         .icon-btn:hover, .text-btn:hover { color: white; }
+
+        /* 🕒 원형 시계 다이얼 UI */
+        #clock-dial-card {
+            width: 170px; height: 170px;
+            background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 50%; backdrop-filter: blur(14px);
+            position: relative; display: flex; justify-content: center; align-items: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5); touch-action: none; cursor: pointer;
+        }
+
+        #clock-svg {
+            width: 100%; height: 100%; position: absolute; top: 0; left: 0; overflow: visible;
+        }
+
+        .dial-track { fill: none; stroke: rgba(255,255,255,0.12); stroke-width: 3; }
+        .dial-label { fill: rgba(255,255,255,0.65); font-size: 10px; text-anchor: middle; dominant-baseline: central; font-weight: 300; }
         
-        /* Time Slider */
-        .slider-container {
-            display: flex; align-items: center; gap: 10px; color: rgba(255,255,255,0.7); font-size: 0.8rem;
+        #dial-hand-group {
+            transform-origin: 85px 85px; transition: transform 0.05s linear;
         }
-        input[type=range] {
-            -webkit-appearance: none; width: 150px; background: rgba(255,255,255,0.2);
-            height: 3px; border-radius: 2px; outline: none; transition: background 0.3s;
+        .dial-line { stroke: rgba(255,208,133,0.5); stroke-width: 2; stroke-dasharray: 2 2; }
+        .dial-knob { 
+            fill: #ffd085; stroke: #ffffff; stroke-width: 2; 
+            filter: drop-shadow(0 0 6px rgba(255,208,133,0.9)); cursor: grab;
         }
-        input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none; appearance: none; width: 12px; height: 12px;
-            border-radius: 50%; background: #ffffff; cursor: pointer;
-            box-shadow: 0 0 8px rgba(255,255,255,0.8); transition: transform 0.2s;
+        .dial-knob:active { cursor: grabbing; transform: scale(1.2); }
+
+        .dial-center-info {
+            position: absolute; display: flex; flex-direction: column; align-items: center; text-align: center; pointer-events: none;
         }
-        input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
+        .time-display { font-size: 1.4rem; font-weight: 300; letter-spacing: 2px; color: #ffffff; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }
+        .theme-display { font-size: 0.72rem; letter-spacing: 0.5px; color: rgba(255,255,255,0.7); margin-top: 2px; max-width: 110px; line-height: 1.2; }
 
         .instruction {
-            position: absolute; bottom: 30px; right: 30px; z-index: 5;
-            font-size: 0.8rem; color: rgba(255,255,255,0.4); letter-spacing: 1px; text-align: right;
-            pointer-events: none; opacity: 0; transition: opacity 2s;
+            position: absolute; bottom: 24px; right: 24px; z-index: 5;
+            font-size: 0.78rem; color: rgba(255,255,255,0.5); letter-spacing: 1px; text-align: right;
+            pointer-events: none; opacity: 0; transition: opacity 2s; text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+        }
+
+        /* 📱 모바일 및 세로 모드 대응 */
+        @media (max-width: 768px), (orientation: portrait) {
+            h1 { font-size: 1.5rem; letter-spacing: 8px; margin-left: 8px; }
+            #control-panel { top: 16px; right: 16px; gap: 10px; }
+            #clock-dial-card { width: 140px; height: 140px; }
+            #clock-svg { width: 140px; height: 140px; }
+            .time-display { font-size: 1.2rem; }
+            .theme-display { font-size: 0.65rem; max-width: 90px; }
+            .instruction { bottom: 16px; right: 16px; font-size: 0.7rem; }
         }
     </style>
 </head>
 <body>
     <div id="canvas-container"></div>
     
-    <!-- 작품 내 정보 -->
-    <div id="info-panel">
-        <div class="time-display" id="time-text">00:00</div>
-        <div class="theme-display" id="theme-text">현재 시간 동기화 중...</div>
-    </div>
-    
     <!-- 컨트롤 패널 -->
     <div id="control-panel">
-        <div class="control-group">
+        <div class="top-bar">
             <button class="icon-btn" id="btn-fullscreen" title="전체화면">⛶</button>
             <div style="width: 1px; height: 12px; background: rgba(255,255,255,0.2);"></div>
             <button class="text-btn active" id="btn-auto">Auto (실시간)</button>
         </div>
         
-        <!-- 24시간 연속 시간 조절 슬라이더 -->
-        <div class="control-group slider-container">
-            <span>🌙</span>
-            <input type="range" id="time-slider" min="0" max="24" step="0.05" value="12">
-            <span>☀️</span>
+        <!-- 원형 시계 다이얼 UI -->
+        <div id="clock-dial-card">
+            <svg id="clock-svg" viewBox="0 0 170 170">
+                <circle cx="85" cy="85" r="70" class="dial-track" />
+                
+                <text x="85" y="28" class="dial-label">☀️ 12</text>
+                <text x="146" y="85" class="dial-label">🌇 18</text>
+                <text x="85" y="142" class="dial-label">🌙 00</text>
+                <text x="24" y="85" class="dial-label">🌅 06</text>
+                
+                <g id="dial-hand-group">
+                    <line x1="85" y1="85" x2="85" y2="18" class="dial-line" />
+                    <circle cx="85" cy="18" r="6.5" class="dial-knob" />
+                </g>
+            </svg>
+
+            <div class="dial-center-info">
+                <div class="time-display" id="time-text">00:00</div>
+                <div class="theme-display" id="theme-text">동기화 중...</div>
+            </div>
         </div>
     </div>
 
-    <div class="instruction" id="instruction-text">슬라이더를 조절하여 시간의 변화를 감상해보세요</div>
+    <div class="instruction" id="instruction-text">시계를 드래그하여 시공간을 조율해보세요</div>
 
     <!-- 인트로 화면 -->
     <div id="intro-layer">
@@ -148,13 +175,13 @@
         const uniforms = {
             u_time: { value: 0.0 },
             u_resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-            u_sunDirection: { value: new THREE.Vector3(0, 0.2, 1).normalize() },
+            u_sunDirection: { value: new THREE.Vector3(0, 0.2, -1.0).normalize() },
             u_waterColor: { value: new THREE.Vector3() },
             u_skyBottom: { value: new THREE.Vector3() },
             u_skyTop: { value: new THREE.Vector3() },
             u_sunColor: { value: new THREE.Vector3() },
             u_isNight: { value: 0.0 },
-            u_waveParams: { value: new THREE.Vector4(0.32, 2.2, 0.16, 0.0) } // x: height, y: choppy, z: speed, w: sunsetGlow
+            u_waveParams: { value: new THREE.Vector4(0.32, 2.2, 0.16, 0.0) }
         };
 
         const fragmentShader = `
@@ -168,9 +195,7 @@
             uniform float u_isNight;
             uniform vec4 u_waveParams;
 
-            const int NUM_STEPS = 45;
-
-            mat2 rot(float a) { float s = sin(a), c = cos(a); return mat2(c, -s, s, c); }
+            const int NUM_STEPS = 35;
 
             float hash(vec2 p) {
                 float h = dot(p, vec2(127.1, 311.7));
@@ -187,7 +212,6 @@
                 u.y);
             }
 
-            // 바다 물결 지오메트리
             float sea_octave(vec2 uv, float choppy) {
                 uv += noise(uv);
                 vec2 wv = 1.0 - abs(sin(uv));
@@ -238,12 +262,19 @@
             float heightMapTracing(vec3 ori, vec3 dir, out vec3 p) {
                 float tm = 0.0;
                 float tx = 1000.0;
+                p = ori + dir * tx;
+                
                 float hx = map(ori + dir * tx, ori);
                 if(hx > 0.0) return tx;
+                
                 float hm = map(ori + dir * tm, ori);
                 float tmid = 0.0;
+                
                 for(int i = 0; i < NUM_STEPS; i++) {
-                    tmid = mix(tm, tx, hm / (hm - hx));
+                    float denom = hm - hx;
+                    if(abs(denom) < 0.0001) denom = 0.0001; 
+                    
+                    tmid = mix(tm, tx, hm / denom);
                     p = ori + dir * tmid;
                     float hmid = map(p, ori);
                     if(hmid < 0.0) {
@@ -257,7 +288,6 @@
                 return tmid;
             }
 
-            // 하늘 및 광원
             vec3 getSkyColor(vec3 e) {
                 e.y = max(e.y, 0.0);
                 vec3 sky = mix(u_skyBottom, u_skyTop, pow(e.y, 0.85));
@@ -265,13 +295,15 @@
                 float sun = max(0.0, dot(e, u_sunDirection));
                 float sunsetGlow = u_waveParams.w; 
                 
-                float corePow = mix(512.0, 256.0, sunsetGlow);
-                sky += u_sunColor * pow(sun, corePow) * (2.0 + sunsetGlow * 1.5);
-                sky += u_sunColor * pow(sun, 64.0) * (0.8 + sunsetGlow * 0.8);
-                sky += u_sunColor * pow(sun, 16.0) * (0.3 + sunsetGlow * 0.6);
-                sky += u_sunColor * pow(sun, 4.0) * (0.1 + sunsetGlow * 0.4);
+                // (Fix) 밤일 때 달 크기를 또렷하게 만들고, 빛 번짐(Bloom)을 은은하게 축소
+                float skyGlowFactor = mix(1.0, 0.18, u_isNight);
+                float corePow = mix(mix(512.0, 256.0, sunsetGlow), 1536.0, u_isNight); 
+                
+                sky += u_sunColor * pow(sun, corePow) * (2.0 + sunsetGlow * 1.5) * skyGlowFactor;
+                sky += u_sunColor * pow(sun, 64.0) * (0.8 + sunsetGlow * 0.8) * skyGlowFactor;
+                sky += u_sunColor * pow(sun, 16.0) * (0.3 + sunsetGlow * 0.6) * skyGlowFactor;
+                sky += u_sunColor * pow(sun, 4.0) * (0.1 + sunsetGlow * 0.4) * skyGlowFactor;
 
-                // 밤하늘 별빛
                 if (u_isNight > 0.1) {
                     float s = noise(e.xz * 350.0);
                     if(s > 0.94) {
@@ -281,7 +313,6 @@
                 return sky;
             }
 
-            // 수면 색상 및 초실사 윤슬
             vec3 getSeaColor(vec3 p, vec3 n, vec3 l, vec3 eye, vec3 ori) {
                 float dist = length(p - ori);
                 float fresnel = clamp(1.0 - dot(n, -eye), 0.0, 1.0);
@@ -291,23 +322,27 @@
                 vec3 refracted = u_waterColor + vec3(0.0, 0.02, 0.05) * (1.0 - fresnel); 
                 
                 float sunsetGlow = u_waveParams.w;
-                float sss = pow(max(0.0, dot(eye, reflect(l, n))), 4.0) * (0.15 + sunsetGlow * 0.2);
+                
+                // (Fix) 달빛 산란광(SSS) 및 수면 반사(Specular) 강도를 차분한 은빛 윤슬로 감쇄
+                float sssFactor = mix(1.0, 0.15, u_isNight);
+                float specNightScale = mix(1.0, 0.18, u_isNight);
+
+                float sss = pow(max(0.0, dot(eye, reflect(l, n))), 4.0) * (0.15 + sunsetGlow * 0.2) * sssFactor;
                 refracted += u_sunColor * sss * u_waterColor;
 
                 vec3 color = mix(refracted, reflected, fresnel);
 
-                // 스펙큘러 하이라이트
                 vec3 ref = reflect(eye, n);
                 float specBase = max(0.0, dot(ref, l));
                 
-                float specExp = mix(500.0, 20.0, smoothstep(5.0, 90.0, dist));
-                float specIntensity = mix(14.0 + sunsetGlow * 6.0, 1.8, smoothstep(10.0, 100.0, dist));
+                float specExp = mix(mix(500.0, 20.0, smoothstep(5.0, 90.0, dist)), 800.0, u_isNight);
+                float specIntensity = mix(14.0 + sunsetGlow * 6.0, 1.8, smoothstep(10.0, 100.0, dist)) * specNightScale;
                 
                 float specSharp = pow(specBase, specExp);
                 color += u_sunColor * specSharp * specIntensity;
                 
                 float specSoft = pow(specBase, mix(40.0 - sunsetGlow * 20.0, 6.0, smoothstep(5.0, 70.0, dist)));
-                color += u_sunColor * specSoft * (0.7 + sunsetGlow * 1.0);
+                color += u_sunColor * specSoft * (0.7 + sunsetGlow * 1.0) * specNightScale;
 
                 return color;
             }
@@ -319,7 +354,7 @@
 
                 float time = u_time * 0.3;
                 vec3 ori = vec3(0.0, 1.4, time * 1.5);
-                vec3 dir = normalize(vec3(uv.xy, -2.5)); // 고정 시점
+                vec3 dir = normalize(vec3(uv.xy, -2.5)); 
 
                 vec3 p;
                 heightMapTracing(ori, dir, p);
@@ -332,14 +367,11 @@
                     pow(smoothstep(0.0, -0.04, dir.y), 0.3)
                 );
 
-                // 한밤중에는 칠흑같이 어두워지도록 노출(Exposure) 제어
-                float exposure = mix(1.2, 0.6, u_isNight);
+                float exposure = mix(1.2, 0.65, u_isNight);
                 color = color * exposure; 
                 
-                // ACES Filmic Tonemapping
                 color = (color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14);
                 
-                // 비네팅
                 float vignette = length(uv) * 0.5;
                 color *= 1.0 - vignette * vignette * 0.4;
 
@@ -356,7 +388,7 @@
         scene.add(plane);
 
         // ==========================================
-        // 2. 13단계 정밀 시간대별 키프레임 데이터
+        // 2. 궤적 최적화 (20시 수평선 이동 버그 수정 & 은은한 달빛)
         // ==========================================
         let isAutoMode = true;
 
@@ -368,25 +400,33 @@
             ];
         }
 
-        // 13단계 초정밀 24시간 타임라인 데이터
         const timeKeyframes = [
-            { time: 0.0,  w: '#010206', sb: '#02040a', st: '#000103', sun: '#88a2c4', ang: 0.35,  n: 1.0, desc: '심야의 깊은 칠흑 바다', wave: [0.28, 2.0, 0.12, 0.0] },
-            { time: 3.5,  w: '#010206', sb: '#02040a', st: '#000103', sun: '#88a2c4', ang: 0.28,  n: 1.0, desc: '달빛 아래 정적의 밤', wave: [0.26, 1.9, 0.11, 0.0] },
-            { time: 4.8,  w: '#030612', sb: '#070f24', st: '#01030a', sun: '#7192bd', ang: 0.15,  n: 0.9, desc: '새벽을 기다리는 푸른 어둠', wave: [0.27, 2.0, 0.12, 0.0] },
-            { time: 5.8,  w: '#091526', sb: '#3d2b45', st: '#0e1c33', sun: '#ffb399', ang: 0.02,  n: 0.3, desc: '여명의 시작 (Pre-Dawn)', wave: [0.29, 2.1, 0.13, 0.2] },
-            { time: 6.8,  w: '#0e233a', sb: '#e6906c', st: '#2b5278', sun: '#ffe4c2', ang: 0.08,  n: 0.0, desc: '황금빛 일출 (Golden Dawn)', wave: [0.32, 2.2, 0.15, 0.4] },
-            { time: 8.5,  w: '#0a2a4c', sb: '#a8d2f0', st: '#1d4f82', sun: '#fffdf5', ang: 0.22,  n: 0.0, desc: '아침의 맑은 산란', wave: [0.34, 2.3, 0.18, 0.0] },
-            { time: 12.5, w: '#041d3d', sb: '#68a8e0', st: '#103c6b', sun: '#ffffff', ang: 0.48,  n: 0.0, desc: '생동하는 한낮의 바다', wave: [0.38, 2.5, 0.22, 0.0] },
-            { time: 15.5, w: '#0e2440', sb: '#d49b6a', st: '#2d4061', sun: '#fff0d1', ang: 0.25,  n: 0.0, desc: '나른한 오후의 윤슬', wave: [0.33, 2.2, 0.16, 0.2] },
-            { time: 17.2, w: '#241312', sb: '#ed6c37', st: '#542d4a', sun: '#ffd18c', ang: 0.08,  n: 0.0, desc: '황금빛 노을의 서막', wave: [0.30, 2.1, 0.14, 0.6] },
-            { time: 18.2, w: '#300a08', sb: '#ff3b14', st: '#4d103b', sun: '#ffa033', ang: -0.01, n: 0.0, desc: '최정점의 노을 (Crimson Sunset)', wave: [0.27, 2.0, 0.13, 1.0] },
-            { time: 19.2, w: '#140c1e', sb: '#38173d', st: '#0a0817', sun: '#d66b7a', ang: -0.08, n: 0.0, desc: '트와일라잇 매직아워', wave: [0.28, 2.0, 0.13, 0.3] },
-            { time: 20.5, w: '#040714', sb: '#0a1429', st: '#01030a', sun: '#89a8cb', ang: 0.18,  n: 0.7, desc: '초여녁의 고요한 침묵', wave: [0.29, 2.0, 0.14, 0.0] },
-            { time: 24.0, w: '#010206', sb: '#02040a', st: '#000103', sun: '#88a2c4', ang: 0.35,  n: 1.0, desc: '심야의 깊은 칠흑 바다', wave: [0.28, 2.0, 0.12, 0.0] }
+            // --- [야간: 은은한 은빛 달빛의 밤] ---
+            { time: 0.0,  w: '#010205', sb: '#020409', st: '#000103', sun: '#5a789a', x:  0.00, ang: 0.40,  n: 1.0, desc: '심야의 고요한 은빛 바다', wave: [0.28, 2.0, 0.12, 0.0] },
+            { time: 3.5,  w: '#010205', sb: '#020409', st: '#000103', sun: '#5a789a', x:  0.50, ang: 0.20,  n: 1.0, desc: '달빛 아래 정적의 밤', wave: [0.26, 1.9, 0.11, 0.0] },
+            { time: 4.8,  w: '#030610', sb: '#060d20', st: '#010309', sun: '#4f6c8e', x:  0.75, ang: 0.05,  n: 0.9, desc: '새벽을 기다리는 푸른 어둠', wave: [0.27, 2.0, 0.12, 0.0] },
+            
+            // --- [주간: 태양의 궤적] ---
+            { time: 5.5,  w: '#081220', sb: '#35253c', st: '#0c182b', sun: '#ff9e80', x: -0.75, ang: -0.10, n: 0.3, desc: '동쪽 여명의 시작 (Pre-Dawn)', wave: [0.29, 2.1, 0.13, 0.2] },
+            { time: 6.5,  w: '#0e233a', sb: '#e6906c', st: '#2b5278', sun: '#ffe4c2', x: -0.68, ang: 0.08,  n: 0.0, desc: '동쪽 바다 위 장엄한 일출', wave: [0.32, 2.2, 0.15, 0.4] },
+            { time: 8.5,  w: '#0a2a4c', sb: '#a8d2f0', st: '#1d4f82', sun: '#fffdf5', x: -0.40, ang: 0.25,  n: 0.0, desc: '아침의 맑은 산란', wave: [0.34, 2.3, 0.18, 0.0] },
+            { time: 12.5, w: '#041d3d', sb: '#68a8e0', st: '#103c6b', sun: '#ffffff', x:  0.00, ang: 0.48,  n: 0.0, desc: '생동하는 한낮의 바다', wave: [0.38, 2.5, 0.22, 0.0] },
+            { time: 15.5, w: '#0e2440', sb: '#d49b6a', st: '#2d4061', sun: '#fff0d1', x:  0.40, ang: 0.25,  n: 0.0, desc: '서쪽으로 기울어가는 오후 윤슬', wave: [0.33, 2.2, 0.16, 0.2] },
+            { time: 17.5, w: '#241312', sb: '#ed6c37', st: '#542d4a', sun: '#ffd18c', x:  0.60, ang: 0.08,  n: 0.0, desc: '서쪽 황금빛 노을의 서막', wave: [0.30, 2.1, 0.14, 0.6] },
+            { time: 18.5, w: '#300a08', sb: '#ff3b14', st: '#4d103b', sun: '#ffa033', x:  0.68, ang: -0.02, n: 0.0, desc: '서쪽 지평선의 최정점 노을', wave: [0.27, 2.0, 0.13, 1.0] },
+            
+            // (Fix) 19:30~20:30 서쪽에서 동쪽으로 이동할 때 광원이 수평선 심층 지하(-0.35)로 이동하여 수평선 빛 띠 오류 제거
+            { time: 19.3, w: '#120a18', sb: '#2a122e', st: '#080612', sun: '#c85a6a', x:  0.80, ang: -0.35, n: 0.2, desc: '서쪽 지평선 너머로 진 태양', wave: [0.28, 2.0, 0.13, 0.2] },
+            { time: 20.0, w: '#030510', sb: '#081022', st: '#010208', sun: '#4f6c8e', x: -0.80, ang: -0.35, n: 0.8, desc: '황혼이 저물고 달이 오르는 시간', wave: [0.28, 2.0, 0.13, 0.0] },
+            { time: 20.8, w: '#030612', sb: '#0a1428', st: '#01030a', sun: '#5a789a', x: -0.60, ang: 0.08,  n: 1.0, desc: '초저녁 동쪽에서 떠오르는 달', wave: [0.29, 2.0, 0.14, 0.0] },
+            { time: 24.0, w: '#010205', sb: '#020409', st: '#000103', sun: '#5a789a', x:  0.00, ang: 0.40,  n: 1.0, desc: '심야의 고요한 은빛 바다', wave: [0.28, 2.0, 0.12, 0.0] }
         ];
 
         function lerp(a, b, t) { return a + (b - a) * t; }
         function lerpArr(a, b, t) { return a.map((v, i) => v + (b[i] - v) * t); }
+        function easeArc(start, end, t) {
+            return start + (end - start) * (0.5 - 0.5 * Math.cos(Math.PI * t));
+        }
 
         function getEnvironmentAtTime(t) {
             t = (t + 24) % 24;
@@ -399,7 +439,6 @@
                     break;
                 }
             }
-
             const factor = (t - k1.time) / (k2.time - k1.time);
             
             return {
@@ -407,20 +446,34 @@
                 sb: lerpArr(hexToRgb(k1.sb), hexToRgb(k2.sb), factor),
                 st: lerpArr(hexToRgb(k1.st), hexToRgb(k2.st), factor),
                 sun: lerpArr(hexToRgb(k1.sun), hexToRgb(k2.sun), factor),
-                ang: lerp(k1.ang, k2.ang, factor),
+                x: easeArc(k1.x, k2.x, factor),
+                ang: easeArc(k1.ang, k2.ang, factor),
                 n: lerp(k1.n, k2.n, factor),
                 wave: lerpArr(k1.wave, k2.wave, factor),
                 desc: factor < 0.5 ? k1.desc : k2.desc
             };
         }
 
+        let lastTimeText = "";
+        let lastThemeText = "";
+
         function updateEnvironment(currentTimeFloat) {
             const h = Math.floor(currentTimeFloat);
             const m = Math.floor((currentTimeFloat % 1) * 60);
-            document.getElementById('time-text').innerText = `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`;
-
+            const newTimeText = `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`;
             const env = getEnvironmentAtTime(currentTimeFloat);
-            document.getElementById('theme-text').innerText = env.desc;
+
+            if (lastTimeText !== newTimeText) {
+                document.getElementById('time-text').innerText = newTimeText;
+                lastTimeText = newTimeText;
+            }
+            if (lastThemeText !== env.desc) {
+                document.getElementById('theme-text').innerText = env.desc;
+                lastThemeText = env.desc;
+            }
+
+            const rotDeg = (currentTimeFloat - 12.0) * (360.0 / 24.0);
+            document.getElementById('dial-hand-group').style.transform = `rotate(${rotDeg}deg)`;
 
             uniforms.u_waterColor.value.fromArray(env.w);
             uniforms.u_skyBottom.value.fromArray(env.sb);
@@ -429,7 +482,7 @@
             uniforms.u_waveParams.value.fromArray(env.wave);
             
             uniforms.u_isNight.value = env.n;
-            uniforms.u_sunDirection.value.set(0, env.ang, -1.0).normalize();
+            uniforms.u_sunDirection.value.set(env.x, env.ang, -1.0).normalize();
         }
 
         window.addEventListener('resize', () => {
@@ -438,29 +491,54 @@
         });
 
         // ==========================================
-        // 3. UI 및 컨트롤 이벤트
+        // 3. 원형 시계 다이얼 드래그 인터랙션
         // ==========================================
-        const timeSlider = document.getElementById('time-slider');
+        const clockDialCard = document.getElementById('clock-dial-card');
         const btnAuto = document.getElementById('btn-auto');
+        let isDragging = false;
 
-        document.getElementById('start-btn').addEventListener('click', () => {
-            const intro = document.getElementById('intro-layer');
-            intro.style.opacity = '0';
-            setTimeout(() => { intro.style.display = 'none'; }, 1500);
+        function calculateTimeFromPointer(e) {
+            const rect = clockDialCard.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
             
-            document.getElementById('info-panel').style.opacity = '1';
-            document.getElementById('control-panel').style.opacity = '1';
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             
-            const inst = document.getElementById('instruction-text');
-            inst.style.opacity = '1';
-            setTimeout(() => { inst.style.opacity = '0'; }, 5000);
-        });
+            const dx = clientX - cx;
+            const dy = clientY - cy;
+            
+            let angle = Math.atan2(dy, dx) + Math.PI / 2;
+            if (angle < 0) angle += 2 * Math.PI;
+            
+            let time = (angle / (2 * Math.PI)) * 24.0 + 12.0;
+            if (time >= 24.0) time -= 24.0;
+            return time;
+        }
 
-        timeSlider.addEventListener('input', (e) => {
+        function onPointerDown(e) {
+            isDragging = true;
             isAutoMode = false;
             btnAuto.classList.remove('active');
-            updateEnvironment(parseFloat(e.target.value));
-        });
+            const time = calculateTimeFromPointer(e);
+            updateEnvironment(time);
+        }
+
+        function onPointerMove(e) {
+            if (!isDragging) return;
+            const time = calculateTimeFromPointer(e);
+            updateEnvironment(time);
+        }
+
+        function onPointerUp() { isDragging = false; }
+
+        clockDialCard.addEventListener('mousedown', onPointerDown);
+        window.addEventListener('mousemove', onPointerMove);
+        window.addEventListener('mouseup', onPointerUp);
+
+        clockDialCard.addEventListener('touchstart', onPointerDown, { passive: true });
+        window.addEventListener('touchmove', onPointerMove, { passive: true });
+        window.addEventListener('touchend', onPointerUp);
 
         btnAuto.addEventListener('click', () => {
             isAutoMode = true;
@@ -470,18 +548,38 @@
 
         function syncToRealtime() {
             const now = new Date();
-            const t = now.getHours() + now.getMinutes() / 60;
-            timeSlider.value = t;
+            const t = now.getHours() + (now.getMinutes() / 60) + (now.getSeconds() / 3600);
             updateEnvironment(t);
         }
 
-        const btnFullscreen = document.getElementById('btn-fullscreen');
-        btnFullscreen.addEventListener('click', () => {
+        document.getElementById('btn-fullscreen').addEventListener('click', async () => {
             if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch(err => {});
+                try {
+                    if (document.documentElement.requestFullscreen) {
+                        await document.documentElement.requestFullscreen();
+                    } else if (document.documentElement.webkitRequestFullscreen) {
+                        await document.documentElement.webkitRequestFullscreen();
+                    }
+                } catch (err) {}
             } else {
-                if (document.exitFullscreen) document.exitFullscreen();
+                if (document.exitFullscreen) {
+                    await document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    await document.webkitExitFullscreen();
+                }
             }
+        });
+
+        document.getElementById('start-btn').addEventListener('click', () => {
+            const intro = document.getElementById('intro-layer');
+            intro.style.opacity = '0';
+            setTimeout(() => { intro.style.display = 'none'; }, 1500);
+            
+            document.getElementById('control-panel').style.opacity = '1';
+            
+            const inst = document.getElementById('instruction-text');
+            inst.style.opacity = '1';
+            setTimeout(() => { inst.style.opacity = '0'; }, 5000);
         });
 
         // ==========================================
@@ -490,9 +588,7 @@
         const clock = new THREE.Clock();
         function animate() {
             requestAnimationFrame(animate);
-            const elapsedTime = clock.getElapsedTime();
-            
-            uniforms.u_time.value = elapsedTime;
+            uniforms.u_time.value = clock.getElapsedTime();
 
             if (isAutoMode) {
                 syncToRealtime();

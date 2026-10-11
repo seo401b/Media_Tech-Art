@@ -3,16 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>호작도</title>
+    <title>호작도 - 3D Interactive Fur</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body, html { 
             width: 100%; height: 100%; 
             overflow: hidden; 
             background-color: #0d0c0a; 
+            touch-action: none; 
             user-select: none;
         }
-        canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+        #webgl-container { display: block; width: 100%; height: 100%; cursor: crosshair; }
 
         #cors-fallback { 
             display: none; 
@@ -32,7 +33,16 @@
             line-height: 1.8;
         }
         #cors-fallback input { margin-top: 18px; cursor: pointer; }
+        #hidden-canvas { display: none; }
     </style>
+    
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+        }
+      }
+    </script>
 </head>
 <body>
     <div id="cors-fallback">
@@ -40,441 +50,303 @@
         <input type="file" id="imageLoader" accept="image/*">
     </div>
 
-    <canvas id="mainCanvas"></canvas>
+    <div id="webgl-container"></div>
+    <canvas id="hidden-canvas"></canvas>
 
-    <script>
-        const canvas = document.getElementById('mainCanvas');
-        const ctx = canvas.getContext('2d');
+    <script type="module">
+        import * as THREE from 'three';
 
-        let width, height;
-        let img = new Image();
-        let isImageLoaded = false;
+        const container = document.getElementById('webgl-container');
+        const fallbackUI = document.getElementById('cors-fallback');
+        
+        let scene, camera, renderer;
+        let instancedMesh;
+        
+        const FUR_RESOLUTION = 250;
+        const mouse = new THREE.Vector2(9999, 9999);
+        const targetMouse = new THREE.Vector2(9999, 9999);
+        let time = 0;
 
-        // 한지 배경
-        let hanjiCanvas = document.createElement('canvas');
-        let hanjiCtx = hanjiCanvas.getContext('2d');
-
-        // 이미지 데이터 분석용
-        let sampleCanvas = document.createElement('canvas');
-        let sampleCtx = sampleCanvas.getContext('2d');
-
-        // 필선 누적용
-        let strokeCanvas = document.createElement('canvas');
-        let strokeCtx = strokeCanvas.getContext('2d');
-
-        let imgPixels = null;
-        let sampleW = 0, sampleH = 0;
-        let drawX = 0, drawY = 0, drawW = 0, drawH = 0;
-
-        let activeStrokes = []; 
-        let transitionStrokes = []; 
-        let totalStrokeCount = 0;
-        let maxStrokes = 24000; 
-
-        // 4가지 화법 정의
-        const MODES = [
-            { maxStrokes: 26000, speed: 180 },
-            { maxStrokes: 24000, speed: 160 },
-            { maxStrokes: 22000, speed: 180 },
-            { maxStrokes: 20000, speed: 150 }
-        ];
-        let currentModeIdx = 0;
-
-        // 상태 제어: 'drawing' -> 'completed' -> 'transition'
-        let state = 'drawing'; 
-        let completionTime = 0;
-        const VIEWING_DURATION = 5.0; // 완성작 감상 시간 5초
-
-        let transitionProgress = 0;
-        const TRANSITION_DURATION = 6.0; // 6초 간의 부드러운 해체
-        let transitionStartTime = 0;
-
-        // 마우스 호버 설정 (범위 좁게 75px)
-        let mouse = { x: -2000, y: -2000, radius: 75 };
-
-        function resize() {
-            width = canvas.width = hanjiCanvas.width = strokeCanvas.width = window.innerWidth;
-            height = canvas.height = hanjiCanvas.height = strokeCanvas.height = window.innerHeight;
-            generateHanji();
-            if (isImageLoaded) {
-                initSampling();
+        function initThreeJS(imageSrc) {
+            if (renderer) {
+                container.innerHTML = '';
             }
-        }
-        window.addEventListener('resize', resize);
 
-        // 1. 닥나무 한지 결 생성
-        function generateHanji() {
-            hanjiCtx.fillStyle = '#f4ede1';
-            hanjiCtx.fillRect(0, 0, width, height);
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color('#151411'); 
 
-            hanjiCtx.strokeStyle = 'rgba(175, 158, 136, 0.12)';
-            hanjiCtx.lineWidth = 0.5;
-            for (let i = 0; i < 700; i++) {
-                let x = Math.random() * width;
-                let y = Math.random() * height;
-                let len = Math.random() * 30 + 10;
-                let ang = Math.random() * Math.PI;
-                hanjiCtx.beginPath();
-                hanjiCtx.moveTo(x, y);
-                hanjiCtx.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
-                hanjiCtx.stroke();
-            }
-        }
+            camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+            camera.position.z = 2;
 
-        // 2. 이미지 샘플링 준비
-        function initSampling() {
-            let scale = Math.min((width * 0.82) / img.width, (height * 0.82) / img.height);
-            drawW = Math.floor(img.width * scale);
-            drawH = Math.floor(img.height * scale);
-            drawX = Math.floor((width - drawW) / 2);
-            drawY = Math.floor((height - drawH) / 2);
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            container.appendChild(renderer.domElement);
 
-            sampleW = sampleCanvas.width = drawW;
-            sampleH = sampleCanvas.height = drawH;
-            sampleCtx.drawImage(img, 0, 0, sampleW, sampleH);
+            loadAndAnalyzeImage(imageSrc);
 
-            let imgData = sampleCtx.getImageData(0, 0, sampleW, sampleH);
-            imgPixels = imgData.data;
-
-            strokeCtx.clearRect(0, 0, width, height);
-            activeStrokes = [];
-            transitionStrokes = [];
-            totalStrokeCount = 0;
-            state = 'drawing';
-            transitionProgress = 0;
-
-            let curMode = MODES[currentModeIdx];
-            maxStrokes = curMode.maxStrokes;
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('touchmove', onTouchMove, { passive: false });
+            window.addEventListener('mouseout', onMouseOut);
+            window.addEventListener('touchend', onMouseOut);
         }
 
-        function getNoiseAngle(x, y) {
-            let scale = 0.005;
-            let val = Math.sin(x * scale) * Math.cos(y * scale) + Math.sin((x + y) * scale * 1.5);
-            return val * Math.PI * 2;
+        function loadAndAnalyzeImage(src) {
+            const img = new Image();
+            img.crossOrigin = "Anonymous";
+            
+            img.onload = () => {
+                fallbackUI.style.display = 'none';
+                
+                const cvs = document.getElementById('hidden-canvas');
+                const ctx = cvs.getContext('2d', { willReadFrequently: true });
+                
+                let scale = Math.min((window.innerWidth * 0.9) / img.width, (window.innerHeight * 0.9) / img.height);
+                let drawW = Math.floor(img.width * scale);
+                let drawH = Math.floor(img.height * scale);
+                
+                cvs.width = FUR_RESOLUTION;
+                cvs.height = Math.floor(FUR_RESOLUTION * (drawH / drawW));
+                
+                ctx.drawImage(img, 0, 0, cvs.width, cvs.height);
+                const imgData = ctx.getImageData(0, 0, cvs.width, cvs.height).data;
+
+                createFurMesh(cvs.width, cvs.height, imgData, drawW, drawH);
+            };
+
+            img.onerror = () => {
+                fallbackUI.style.display = 'block';
+            };
+
+            img.src = src;
         }
 
-        // 4가지 화법 알고리즘 붓질 매니저
-        function generateStrokesForMode(batchSize) {
-            if (!imgPixels || totalStrokeCount >= maxStrokes || state !== 'drawing') return;
+        function createFurMesh(gridW, gridH, imgData, drawW, drawH) {
+            const totalHairs = gridW * gridH;
+            
+            const geometry = new THREE.PlaneGeometry(1, 1, 1, 4);
+            geometry.translate(0, 0.5, 0);
+            
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0 },
+                    uMouse: { value: new THREE.Vector2(9999, 9999) },
+                    uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
+                },
+                vertexShader: `
+                    uniform float uTime;
+                    uniform vec2 uMouse;
+                    uniform vec2 uResolution;
+                    
+                    attribute vec3 aColor;
+                    attribute vec2 aPosInfo;
+                    attribute float aLength;
+                    attribute float aRandom;
+                    
+                    varying vec3 vColor;
+                    varying float vV;
 
-            strokeCtx.save();
-            strokeCtx.globalCompositeOperation = 'multiply';
+                    vec2 hash( vec2 p ) {
+                        p = vec2( dot(p,vec2(127.1,311.7)), dot(p,vec2(269.5,183.3)) );
+                        return -1.0 + 2.0*fract(sin(p)*43758.5453123);
+                    }
+                    float noise( in vec2 p ) {
+                        const float K1 = 0.366025404;
+                        const float K2 = 0.211324865;
+                        vec2 i = floor( p + (p.x+p.y)*K1 );
+                        vec2 a = p - i + (i.x+i.y)*K2;
+                        vec2 o = (a.x>a.y) ? vec2(1.0,0.0) : vec2(0.0,1.0);
+                        vec2 b = a - o + K2;
+                        vec2 c = a - 1.0 + 2.0*K2;
+                        vec3 h = max( 0.5-vec3(dot(a,a), dot(b,b), dot(c,c) ), 0.0 );
+                        vec3 n = h*h*h*h*vec3( dot(a,hash(i+0.0)), dot(b,hash(i+o)), dot(c,hash(i+1.0)));
+                        return dot( n, vec3(70.0) );
+                    }
 
-            let added = 0;
-            let attempts = 0;
+                    void main() {
+                        vColor = aColor;
+                        vV = position.y;
+                        
+                        vec2 basePos = aPosInfo;
+                        
+                        // --- 1. 아주 잔잔한 미풍 (Wind Idle) ---
+                        float windSpeed = uTime * 0.8; // 천천히 흐르는 바람
+                        float windForce = noise(basePos * 4.0 + vec2(windSpeed, 0.0)) * 0.035; // 0.15 -> 0.035 대폭 축소
+                        vec2 windOffset = vec2(windForce, -abs(windForce)*0.3); 
+                        
+                        // --- 2. 마우스 인터랙션 (범위 축소 & 부드럽게) ---
+                        vec2 screenPos = basePos;
+                        vec2 aspect = vec2(uResolution.x / uResolution.y, 1.0);
+                        vec2 diff = (screenPos - uMouse) * aspect;
+                        float dist = length(diff);
+                        
+                        // 영향 반경을 0.15에서 0.075로 절반 축소
+                        float effectRadius = 0.075; 
+                        vec2 mouseForce = vec2(0.0);
+                        
+                        if(dist < effectRadius) {
+                            vec2 dir = normalize(diff);
+                            // 밀려나는 힘을 0.25에서 0.07로 약화
+                            float strength = (1.0 - (dist / effectRadius)) * 0.07;
+                            mouseForce = dir * strength;
+                        }
 
-            while (added < batchSize && attempts < batchSize * 6) {
-                attempts++;
+                        // --- 3. 최종 오프셋 계산 ---
+                        vec2 totalOffset = (windOffset + mouseForce) * (vV * vV);
+                        
+                        vec3 finalPos = position;
+                        finalPos.x *= 0.003;
+                        finalPos.y *= aLength;
+                        
+                        finalPos.x += totalOffset.x;
+                        finalPos.y += totalOffset.y;
 
-                let rx = Math.floor(Math.random() * sampleW);
-                let ry = Math.floor(Math.random() * sampleH);
+                        vec4 mvPosition = viewMatrix * instanceMatrix * vec4(finalPos, 1.0);
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vColor;
+                    varying float vV;
+                    
+                    void main() {
+                        float alpha = smoothstep(1.0, 0.85, vV); 
+                        vec3 finalColor = mix(vColor * 0.4, vColor * 1.1, vV);
+                        gl_FragColor = vec4(finalColor, alpha);
+                    }
+                `,
+                transparent: true,
+                depthWrite: false
+            });
 
-                let idx = (ry * sampleW + rx) * 4;
-                let r = imgPixels[idx];
-                let g = imgPixels[idx + 1];
-                let b = imgPixels[idx + 2];
-                let a = imgPixels[idx + 3];
+            instancedMesh = new THREE.InstancedMesh(geometry, material, totalHairs);
+            const dummy = new THREE.Object3D();
+            
+            const colorArray = new Float32Array(totalHairs * 3);
+            const posInfoArray = new Float32Array(totalHairs * 2);
+            const lengthArray = new Float32Array(totalHairs);
+            const randomArray = new Float32Array(totalHairs);
 
-                if (a < 20) continue;
+            let index = 0;
+            const aspectW = drawW / window.innerWidth;
+            const aspectH = drawH / window.innerHeight;
 
-                let brightness = 0.299 * r + 0.587 * g + 0.114 * b;
-                let acceptProb = (1 - brightness / 255) * 0.88 + 0.08;
-                if (Math.random() > acceptProb) continue;
+            for (let y = 0; y < gridH; y++) {
+                for (let x = 0; x < gridW; x++) {
+                    const idx = (y * gridW + x) * 4;
+                    const r = imgData[idx] / 255;
+                    const g = imgData[idx+1] / 255;
+                    const b = imgData[idx+2] / 255;
+                    const a = imgData[idx+3];
 
-                let startX = drawX + rx;
-                let startY = drawY + ry;
-                let progress = totalStrokeCount / maxStrokes;
+                    if (a < 50) continue;
 
-                let endX = startX;
-                let endY = startY;
-                let ctrlX = startX;
-                let ctrlY = startY;
-                let strokeW = 1.0;
-                let alpha = 0.5;
-                let type = 'line';
+                    const nx = (x / gridW) * 2 - 1;
+                    const ny = -(y / gridH) * 2 + 1;
+                    
+                    const finalX = nx * aspectW;
+                    const finalY = ny * aspectH;
 
-                // --- 화법 1: 낙필 ---
-                if (currentModeIdx === 0) {
-                    let angle = getNoiseAngle(rx, ry) * 0.3 + (Math.random() - 0.5) * 1.2;
-                    let len = Math.random() * (18 - progress * 8) + 5;
-                    strokeW = Math.random() * (2.8 - progress * 1.4) + 0.5;
-                    alpha = (1 - brightness / 255) * 0.55 + 0.15;
-                    endX = startX + Math.cos(angle) * len;
-                    endY = startY + Math.sin(angle) * len;
-                    ctrlX = (startX + endX) / 2 + (Math.random() - 0.5) * 5;
-                    ctrlY = (startY + endY) / 2 + (Math.random() - 0.5) * 5;
+                    dummy.position.set(finalX, finalY, 0);
+                    dummy.rotation.z = (Math.random() - 0.5) * 0.4;
+                    dummy.updateMatrix();
+                    instancedMesh.setMatrixAt(index, dummy.matrix);
 
-                    strokeCtx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
-                    strokeCtx.lineWidth = strokeW;
-                    strokeCtx.lineCap = 'round';
-                    strokeCtx.beginPath();
-                    strokeCtx.moveTo(startX, startY);
-                    strokeCtx.quadraticCurveTo(ctrlX, ctrlY, endX, endY);
-                    strokeCtx.stroke();
-                    type = 'curve';
+                    colorArray[index * 3 + 0] = r;
+                    colorArray[index * 3 + 1] = g;
+                    colorArray[index * 3 + 2] = b;
+                    
+                    posInfoArray[index * 2 + 0] = finalX;
+                    posInfoArray[index * 2 + 1] = finalY;
+
+                    const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+                    const baseLen = 0.025 + (brightness * 0.045);
+                    lengthArray[index] = baseLen * (0.8 + Math.random() * 0.4);
+                    
+                    randomArray[index] = Math.random();
+
+                    index++;
                 }
-                // --- 화법 2: 기운 ---
-                else if (currentModeIdx === 1) {
-                    let angle = getNoiseAngle(rx, ry);
-                    let len = Math.random() * 22 + 8;
-                    strokeW = Math.random() * 1.8 + 0.6;
-                    alpha = (1 - brightness / 255) * 0.65 + 0.12;
-                    endX = startX + Math.cos(angle) * len;
-                    endY = startY + Math.sin(angle) * len;
-
-                    strokeCtx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
-                    strokeCtx.lineWidth = strokeW;
-                    strokeCtx.lineCap = 'round';
-                    strokeCtx.beginPath();
-                    strokeCtx.moveTo(startX, startY);
-                    strokeCtx.lineTo(endX, endY);
-                    strokeCtx.stroke();
-                    type = 'line';
-                }
-                // --- 화법 3: 철선묘 ---
-                else if (currentModeIdx === 2) {
-                    let rightIdx = (ry * sampleW + Math.min(sampleW - 1, rx + 1)) * 4;
-                    let bottomIdx = (Math.min(sampleH - 1, ry + 1) * sampleW + rx) * 4;
-                    let dx = imgPixels[rightIdx] - r;
-                    let dy = imgPixels[bottomIdx] - r;
-                    let angle = Math.atan2(dy, dx) + Math.PI / 2;
-
-                    let len = Math.random() * 10 + 4;
-                    strokeW = (1 - brightness / 255) > 0.6 ? 2.0 : 0.8;
-                    alpha = (1 - brightness / 255) * 0.8 + 0.2;
-                    endX = startX + Math.cos(angle) * len;
-                    endY = startY + Math.sin(angle) * len;
-
-                    strokeCtx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
-                    strokeCtx.lineWidth = strokeW;
-                    strokeCtx.lineCap = 'square';
-                    strokeCtx.beginPath();
-                    strokeCtx.moveTo(startX, startY);
-                    strokeCtx.lineTo(endX, endY);
-                    strokeCtx.stroke();
-                    type = 'line';
-                }
-                // --- 화법 4: 파묵 ---
-                else {
-                    strokeW = Math.random() * (5.5 - progress * 2.8) + 1.2;
-                    alpha = (1 - brightness / 255) * 0.72 + 0.18;
-
-                    strokeCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
-                    strokeCtx.beginPath();
-                    strokeCtx.arc(startX, startY, strokeW / 2, 0, Math.PI * 2);
-                    strokeCtx.fill();
-                    type = 'dot';
-                }
-
-                activeStrokes.push({
-                    x: startX,
-                    y: startY,
-                    endX: endX,
-                    endY: endY,
-                    ctrlX: ctrlX,
-                    ctrlY: ctrlY,
-                    r: r,
-                    g: g,
-                    b: b,
-                    alpha: alpha,
-                    width: strokeW,
-                    type: type,
-                    stagger: Math.random(),
-                    speedFactor: Math.random() * 0.8 + 0.6,
-                    rotSpd: (Math.random() - 0.5) * 0.15,
-                    vx: (Math.random() - 0.5) * 1.5,
-                    vy: (Math.random() - 0.5) * 1.5
-                });
-
-                added++;
-                totalStrokeCount++;
             }
 
-            strokeCtx.restore();
+            instancedMesh.count = index;
 
-            if (totalStrokeCount >= maxStrokes && state === 'drawing') {
-                state = 'completed';
-                completionTime = Date.now() / 1000;
+            geometry.setAttribute('aColor', new THREE.InstancedBufferAttribute(colorArray, 3));
+            geometry.setAttribute('aPosInfo', new THREE.InstancedBufferAttribute(posInfoArray, 2));
+            geometry.setAttribute('aLength', new THREE.InstancedBufferAttribute(lengthArray, 1));
+            geometry.setAttribute('aRandom', new THREE.InstancedBufferAttribute(randomArray, 1));
+
+            scene.add(instancedMesh);
+            
+            updateCameraAspect();
+            renderer.setAnimationLoop(animate);
+        }
+
+        function updateMousePos(clientX, clientY) {
+            targetMouse.x = (clientX / window.innerWidth) * 2 - 1;
+            targetMouse.y = -(clientY / window.innerHeight) * 2 + 1;
+        }
+
+        function onMouseMove(e) {
+            updateMousePos(e.clientX, e.clientY);
+        }
+
+        function onTouchMove(e) {
+            e.preventDefault();
+            if (e.touches.length > 0) {
+                updateMousePos(e.touches[0].clientX, e.touches[0].clientY);
             }
         }
 
-        function startTransition() {
-            state = 'transition';
-            transitionStartTime = Date.now() / 1000;
-
-            let step = Math.max(1, Math.floor(activeStrokes.length / 3800));
-            transitionStrokes = [];
-            for (let i = 0; i < activeStrokes.length; i += step) {
-                transitionStrokes.push(activeStrokes[i]);
-            }
+        function onMouseOut() {
+            targetMouse.set(9999, 9999);
         }
 
-        window.addEventListener('mousemove', (e) => {
-            mouse.x = e.clientX;
-            mouse.y = e.clientY;
-        });
+        function onWindowResize() {
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            updateCameraAspect();
+        }
 
-        window.addEventListener('mouseleave', () => {
-            mouse.x = -2000;
-            mouse.y = -2000;
-        });
+        function updateCameraAspect() {
+            if(!camera || !instancedMesh) return;
+            const aspect = window.innerWidth / window.innerHeight;
+            camera.left = -1;
+            camera.right = 1;
+            camera.top = 1 / aspect;
+            camera.bottom = -1 / aspect;
+            
+            if(aspect < 1) {
+                camera.left = -aspect;
+                camera.right = aspect;
+                camera.top = 1;
+                camera.bottom = -1;
+            }
+            camera.updateProjectionMatrix();
+            instancedMesh.material.uniforms.uResolution.value.set(window.innerWidth, window.innerHeight);
+        }
 
-        img.onload = () => {
-            isImageLoaded = true;
-            document.getElementById('cors-fallback').style.display = 'none';
-            resize();
-            requestAnimationFrame(render);
-        };
-        img.onerror = () => {
-            document.getElementById('cors-fallback').style.display = 'block';
-        };
-        img.src = 'hojak.jpeg';
+        function animate() {
+            time += 0.016;
+
+            // 마우스 보간 속도를 0.15 -> 0.08로 줄여 조금 더 부드럽고 천천히 추적
+            mouse.lerp(targetMouse, 0.08);
+
+            if (instancedMesh) {
+                instancedMesh.material.uniforms.uTime.value = time;
+                instancedMesh.material.uniforms.uMouse.value.copy(mouse);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        initThreeJS('hojak.jpeg');
 
         document.getElementById('imageLoader').addEventListener('change', (e) => {
             const reader = new FileReader();
-            reader.onload = (event) => { img.src = event.target.result; }
+            reader.onload = (event) => { initThreeJS(event.target.result); }
             if(e.target.files[0]) reader.readAsDataURL(e.target.files[0]);
         });
-
-        function render() {
-            if (!isImageLoaded) return;
-
-            let now = Date.now() / 1000;
-
-            if (state === 'drawing') {
-                let curBatchSpeed = MODES[currentModeIdx].speed;
-                generateStrokesForMode(curBatchSpeed);
-            } 
-            else if (state === 'completed') {
-                let elapsed = now - completionTime;
-                if (elapsed >= VIEWING_DURATION) {
-                    startTransition();
-                }
-            }
-
-            ctx.clearRect(0, 0, width, height);
-
-            if (state === 'transition') {
-                let transElapsed = now - transitionStartTime;
-                transitionProgress = Math.min(1.0, transElapsed / TRANSITION_DURATION);
-
-                // 1. 한지 바탕
-                ctx.drawImage(hanjiCanvas, 0, 0);
-
-                // 2. 완성된 원본 그림 레이어가 천천히 옅어지며 은은하게 배경으로 깔림
-                let bgFade = Math.max(0, 1.0 - transitionProgress * 1.8);
-                if (bgFade > 0) {
-                    ctx.save();
-                    ctx.globalAlpha = bgFade;
-                    ctx.drawImage(strokeCanvas, 0, 0);
-                    ctx.restore();
-                }
-
-                // 3. 필선 해체 트랜지션
-                ctx.save();
-                ctx.globalCompositeOperation = 'multiply';
-
-                for (let i = 0; i < transitionStrokes.length; i++) {
-                    let s = transitionStrokes[i];
-
-                    let strokeProgress = (transitionProgress - s.stagger * 0.4) / 0.6;
-                    if (strokeProgress <= 0) continue;
-
-                    let p = Math.min(1.0, strokeProgress * s.speedFactor);
-                    let fade = Math.max(0, 1.0 - p * 1.1);
-                    if (fade <= 0) continue;
-
-                    let offsetX = 0;
-                    let offsetY = 0;
-                    let angleRot = 0;
-
-                    if (currentModeIdx === 0) {
-                        let gravity = Math.pow(p, 2.0) * (height * 0.7);
-                        offsetY = gravity;
-                        offsetX = Math.sin(p * 8 + s.x) * 6;
-                    } else if (currentModeIdx === 1) {
-                        offsetX = Math.pow(p, 1.8) * (width * 0.5) + Math.sin(p * 6) * 15;
-                        offsetY = -Math.pow(p, 1.5) * (height * 0.3);
-                        angleRot = p * s.rotSpd * 2;
-                    } else if (currentModeIdx === 2) {
-                        let push = Math.pow(p, 1.5) * 280;
-                        offsetX = s.vx * push;
-                        offsetY = s.vy * push;
-                        angleRot = p * s.rotSpd * 3;
-                    } else {
-                        offsetY = Math.pow(p, 1.8) * (height * 0.45);
-                        offsetX = (Math.sin(p * 4 + s.y) * 12);
-                    }
-
-                    ctx.save();
-                    ctx.translate(s.x + offsetX, s.y + offsetY);
-                    if (angleRot !== 0) ctx.rotate(angleRot);
-
-                    let drawAlpha = s.alpha * fade;
-                    ctx.strokeStyle = `rgba(${s.r}, ${s.g}, ${s.b}, ${drawAlpha})`;
-                    ctx.fillStyle = `rgba(${s.r}, ${s.g}, ${s.b}, ${drawAlpha})`;
-                    ctx.lineWidth = s.width;
-
-                    let relEndX = s.endX - s.x;
-                    let relEndY = s.endY - s.y;
-                    let relCtrlX = s.ctrlX - s.x;
-                    let relCtrlY = s.ctrlY - s.y;
-
-                    if (s.type === 'dot') {
-                        ctx.beginPath();
-                        ctx.arc(0, 0, (s.width / 2) * (1 + p * 0.3), 0, Math.PI * 2);
-                        ctx.fill();
-                    } else if (s.type === 'curve') {
-                        ctx.lineCap = 'round';
-                        ctx.beginPath();
-                        ctx.moveTo(0, 0);
-                        ctx.quadraticCurveTo(relCtrlX, relCtrlY, relEndX, relEndY);
-                        ctx.stroke();
-                    } else {
-                        ctx.lineCap = 'round';
-                        ctx.beginPath();
-                        ctx.moveTo(0, 0);
-                        ctx.lineTo(relEndX, relEndY);
-                        ctx.stroke();
-                    }
-
-                    ctx.restore();
-                }
-
-                ctx.restore();
-
-                if (transitionProgress >= 1.0) {
-                    currentModeIdx = (currentModeIdx + 1) % MODES.length;
-                    initSampling();
-                }
-
-            } else {
-                // 정상 감상 및 드로잉 상태
-                ctx.drawImage(hanjiCanvas, 0, 0);
-                ctx.drawImage(strokeCanvas, 0, 0);
-
-                // [요청사항 반영: 마우스 위치에 원본 선명하게 비추기 (좁은 반경 75px)]
-                if (mouse.x > 0 && mouse.y > 0) {
-                    ctx.save();
-                    ctx.beginPath();
-                    ctx.arc(mouse.x, mouse.y, mouse.radius, 0, Math.PI * 2);
-                    ctx.clip();
-
-                    ctx.globalCompositeOperation = 'multiply';
-                    ctx.globalAlpha = 0.9;
-                    ctx.drawImage(img, drawX, drawY, drawW, drawH);
-
-                    // 좁은 반경 가장자리 테두리 선
-                    ctx.strokeStyle = 'rgba(160, 140, 115, 0.25)';
-                    ctx.lineWidth = 1;
-                    ctx.stroke();
-
-                    ctx.restore();
-                }
-            }
-
-            requestAnimationFrame(render);
-        }
     </script>
 </body>
 </html>
